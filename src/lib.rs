@@ -1,9 +1,9 @@
-use url::Url;
+use reqwest::Method;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
-use serde_json::Value;
-use reqwest::Method;
+use url::Url;
 
 mod utils;
 
@@ -37,33 +37,41 @@ impl Teemo {
         println!("Teemo is closed.");
     }
 
-    fn initialize(&mut self) {
-        while self.closed == false {
-
-            let remote_data = utils::get_lcu_cmd_data();
-
-            if remote_data.len() < 2 {
-                println!("LCU is not running.");
-                thread::sleep(Duration::from_millis(500));
-                continue;
+    async fn get_remote_data(&self, closed: bool) -> HashMap<String, String> {
+        tokio::spawn(async move {
+            let mut remote_data = utils::get_lcu_cmd_data();
+            while closed == false {
+                remote_data = utils::get_lcu_cmd_data();
+                if remote_data.len() < 2 {
+                    println!("LCU is not running.");
+                    thread::sleep(Duration::from_millis(500));
+                    continue;
+                }
+                break;
             }
+            remote_data
+        }).await.unwrap()
+    }
 
-            self.app_token = remote_data.get("remoting-auth-token").unwrap().to_owned();
-            self.app_port = remote_data
-                .get("app-port")
-                .unwrap()
-                .to_owned()
-                .parse::<i32>()
-                .unwrap();
-            self.url = Url::parse(&("https://127.0.0.1:".to_string() + &self.app_port.to_string()))
-                .unwrap();
-            self.ws_url =
-                Url::parse(&("wss://127.0.0.1:".to_string() + &self.app_port.to_string())).unwrap();
-            
-            println!("Teemo has finished initializing.LCU is running on {}", self.url);
-            println!("LCU is running on {}, token: {}", self.url, self.app_token);
-            break;
-        }
+    async fn initialize(&mut self) {
+        let remote_data = self.get_remote_data(self.closed).await;
+        self.app_token = remote_data.get("remoting-auth-token").unwrap().to_owned();
+        self.app_port = remote_data
+            .get("app-port")
+            .unwrap()
+            .to_owned()
+            .parse::<i32>()
+            .unwrap();
+        self.url =
+            Url::parse(&("https://127.0.0.1:".to_string() + &self.app_port.to_string())).unwrap();
+        self.ws_url =
+            Url::parse(&("wss://127.0.0.1:".to_string() + &self.app_port.to_string())).unwrap();
+
+        println!(
+            "Teemo has finished initializing.LCU is running on {}",
+            self.url
+        );
+        println!("LCU is running on {}, token: {}", self.url, self.app_token);
     }
 
     /// 用来发送LCU请求
@@ -83,7 +91,7 @@ impl Teemo {
             .no_proxy()
             .build()
             .unwrap();
-    
+
         let response = client
             .request(
                 Method::from_bytes(method_byte).unwrap(),
@@ -97,7 +105,7 @@ impl Teemo {
             .text()
             .await
             .unwrap();
-        
+
         Ok(serde_json::from_str(&response).unwrap())
     }
 }
