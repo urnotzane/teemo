@@ -9,6 +9,7 @@ pub struct Teemo {
     app_port: i32,
     url: Url,
     ws_url: Url,
+    closed: bool,
 }
 
 impl Teemo {
@@ -18,15 +19,23 @@ impl Teemo {
             app_port: 0,
             url: Url::parse("https://127.0.0.1").unwrap(),
             ws_url: Url::parse("https://127.0.0.1").unwrap(),
+            closed: false,
         }
     }
 
     pub fn start(&mut self) {
+        self.closed = false;
         self.initialize();
     }
 
+    pub fn close(&mut self) {
+        self.closed = true;
+        println!("Teemo is closed.");
+    }
+
     fn initialize(&mut self) {
-        loop {
+        while self.closed == false {
+
             let remote_data = utils::get_lcu_cmd_data();
 
             if remote_data.len() < 2 {
