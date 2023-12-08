@@ -19,4 +19,5 @@ async fn send_lcu_req() {
 
     thread::sleep(Duration::from_millis(500));
   }
+  teemo.close();
 }
