@@ -15,8 +15,8 @@ async fn send_lcu_req() {
   while i < 10 {
     i += 1;
     let summoner = teemo.request("GET", "lol-summoner/v1/current-summoner", None).await;
-    println!("{:#?}", summoner);
-    
+    println!("{:#?}", summoner.get("displayName"));
+
     thread::sleep(Duration::from_millis(500));
   }
 }
