@@ -80,7 +80,10 @@ impl Teemo {
         method: &str,
         url: &str,
         data: Option<HashMap<String, Value>>,
-    ) -> Result<HashMap<String, Value>, serde_json::Error> {
+    ) -> HashMap<String, Value> {
+        let mut error_res:HashMap<String, Value> = HashMap::new();
+        error_res.insert("code".to_string(), serde_json::json!(500));
+        error_res.insert("message".to_string(), serde_json::json!("LCU service error."));
         // if self.app_token.len() < 1 {
         //     return Ok(HashMap::new());
         // }
@@ -92,20 +95,27 @@ impl Teemo {
             .build()
             .unwrap();
 
-        let response = client
+        let request = client
             .request(
                 Method::from_bytes(method_byte).unwrap(),
                 format!("{}{}", self.url, url),
             )
             .basic_auth("riot", Some(&self.app_token))
+            .header("Accept", "application/json, text/plain")
+            .header("Content-Type", "application/json")
             .json(&data)
             .send()
-            .await
-            .unwrap()
-            .text()
-            .await
-            .unwrap();
+            .await;
 
-        Ok(serde_json::from_str(&response).unwrap())
+        match request {
+            Ok(request) => {
+                let response = request.text().await.unwrap();
+                serde_json::from_str(&response).unwrap()
+            },
+            Err(err) => {
+                println!("LCU service error: {:?}", err);
+                error_res
+            }
+        }
     }
 }
