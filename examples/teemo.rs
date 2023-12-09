@@ -12,7 +12,10 @@ async fn send_lcu_req() {
   teemo.start().await;
   
   teemo.subscribe("/lol-chat/v1/settings", |data| {
-    println!("----teemo.subscribe---- {:#?}", data);
+    println!("----teemo./lol-chat/v1/settings---- {:#?}", data.get("eventType"));
+  }).await;
+  teemo.subscribe("/lol-chat/v1/settings", |data| {
+    println!("----teemo./lol-chat/v1/settings 2222---- {:#?}", data.get("uri"));
   }).await;
 
   // 发送LCU请求

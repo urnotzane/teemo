@@ -1,16 +1,19 @@
+use async_recursion::async_recursion;
 use base64::{engine::general_purpose, Engine as _};
 use futures_util::{SinkExt, StreamExt};
 use http::Request;
 use native_tls::TlsConnector;
 use reqwest::Method;
 use serde_json::Value;
-use tokio::{net::TcpStream, sync::mpsc};
 use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
-use tokio_tungstenite::{connect_async_tls_with_config, tungstenite::Message, Connector, WebSocketStream, MaybeTlsStream};
+use tokio::sync::mpsc::Receiver;
+use tokio::{net::TcpStream, sync::mpsc};
+use tokio_tungstenite::{
+    connect_async_tls_with_config, tungstenite::Message, Connector, MaybeTlsStream, WebSocketStream,
+};
 use url::Url;
-use async_recursion::async_recursion;
 
 mod utils;
 
@@ -22,7 +25,7 @@ pub struct Teemo {
     ws_url: Url,
     ws_alive: bool,
     ws_thread: Option<tokio::task::JoinHandle<()>>,
-    ws_sender: Option<mpsc::Sender<String>>,
+    ws_sender: Option<mpsc::Sender<(String, fn(HashMap<String, Value>))>>,
     ws_tasks: HashMap<String, Vec<fn(HashMap<String, Value>)>>,
 }
 
@@ -145,51 +148,72 @@ impl Teemo {
             .header("Content-Type", "application/json")
             .body(())
             .unwrap();
-        println!("Attempting to establish connection with LCU websocket: {}", self.ws_url.as_str());
+        println!(
+            "Attempting to establish connection with LCU websocket: {}",
+            self.ws_url.as_str()
+        );
         let ws_stream_res =
-            connect_async_tls_with_config(request, None, false, Some(connector))
-                .await;
-            
+            connect_async_tls_with_config(request, None, false, Some(connector)).await;
+
         match ws_stream_res {
             Ok((ws_stream, _ws_res)) => {
                 println!("LCU websocket is connected.Captain Teemo on duty.");
                 self.ws_alive = true;
                 ws_stream
-            },
+            }
             Err(err) => {
-                println!("LCU websocket connect failed.Teemo will continue to attempt after 500ms.{:#?}", err);
+                println!(
+                    "LCU websocket connect failed.Teemo will continue to attempt after 500ms.{:#?}",
+                    err
+                );
                 self.ws_alive = false;
                 thread::sleep(Duration::from_millis(500));
                 self.ws_connector().await
             }
         }
-    } 
+    }
 
     async fn start_ws(&mut self) {
         let mut ws_stream = self.ws_connector().await;
-        let (ws_sender, mut ws_recv) = mpsc::channel::<String>(100);
+        let (ws_sender, mut ws_recv) = mpsc::channel::<(String, fn(HashMap<String, Value>))>(100);
         self.ws_sender = Some(ws_sender);
 
+        let mut ws_tasks: HashMap<String, Vec<fn(HashMap<String, Value>)>> =
+            HashMap::new();
         let handle = tokio::spawn(async move {
-            let event_msg = ws_recv.recv().await.unwrap();
-            let sender_res = ws_stream.send(Message::Text(event_msg)).await.unwrap();
-            println!("sender_res: {:?}", sender_res);
+            let msgs = ws_recv.recv().await.unwrap();
+            
+            let delimiter_count = msgs.0.matches("/").count();
+            let event_str = "OnJsonApiEvent".to_string() + &msgs.0.replacen("/", "_", delimiter_count);
+            let event_str = format!("[5,\"{}\"]", event_str);
+            let _ = ws_stream.send(Message::Text(event_str)).await.unwrap();
+
+            match ws_tasks.get(&msgs.0) {
+                Some(tasks) => {
+                    let mut tasks = tasks.clone();
+                    tasks.push(msgs.1);
+                    ws_tasks.insert(msgs.0.to_string(), tasks);
+                }
+                None => {
+                    let mut tasks: Vec<fn(HashMap<String, Value>)> = Vec::new();
+                    tasks.push(msgs.1);
+                    ws_tasks.insert(msgs.0.to_string(), tasks);
+                }
+            }
+
             while let Some(msg) = ws_stream.next().await {
                 let msg = msg.unwrap();
                 if msg.is_text() || msg.is_binary() {
                     // msg为空时表示ws_stream.send成功
-                    println!("----start_ws msg----: {:?}", &msg.to_string());
                     if msg.to_string().len() < 1 {
                         continue;
                     }
                     let data: (i32, String, HashMap<String, Value>) = serde_json::from_str(&msg.to_string()).unwrap();
-
-                    println!("----serde_json----: {:?}", data);
-                    // let key = data.2.get("uri").unwrap().to_string();
-                    // // 发送LCU ws结果
-                    // ws_tasks.get(&key).unwrap().iter().for_each(|task| {
-                    //     task(data.2.clone());
-                    // });
+                    let key = data.2.get("uri").unwrap().to_string().replacen("\"", "", 2);
+                    // 发送LCU ws结果
+                    for task in ws_tasks.get(&key).unwrap() {
+                        task(data.2.clone());
+                    }
                 }
             }
         });
@@ -197,27 +221,11 @@ impl Teemo {
     }
 
     pub async fn subscribe(&mut self, event: &str, callback: fn(HashMap<String, Value>)) {
-        let delimiter_count = event.matches("/").count();
-        let event_str = "OnJsonApiEvent".to_string() + &event.replacen("/", "_", delimiter_count);
-        let event_str = format!("[5,\"{}\"]", event_str);
-        self.ws_sender.clone().unwrap().send(event_str).await.unwrap();
-
-        match self.ws_tasks.get(event) {
-            Some(tasks) => {
-                let mut tasks = tasks.clone();
-                tasks.push(callback);
-                self.ws_tasks.insert(event.to_string(), tasks);
-            }
-            None => {
-                let mut tasks: Vec<fn(HashMap<String, Value>)> = Vec::new();
-                tasks.push(callback);
-                self.ws_tasks.insert(event.to_string(), tasks);
-            }
-        }
-        println!("[[subscribe]]: {:?}", self.ws_tasks.keys());
+        self.ws_sender
+            .clone()
+            .unwrap()
+            .send((event.to_string(), callback))
+            .await
+            .unwrap();
     }
-    async fn dispatch() {
-
-    }
-    
 }
