@@ -9,15 +9,18 @@ async fn main() {
 
 async fn send_lcu_req() {
   let mut teemo = Teemo::new();
-  teemo.start();
+  teemo.start().await;
   // 发送LCU请求
   let mut i = 0;
-  while i < 10 {
+  while i < 20 {
     i += 1;
     let summoner = teemo.request("GET", "lol-summoner/v1/current-summoner", None).await;
     println!("{:#?}", summoner.get("displayName"));
 
     thread::sleep(Duration::from_millis(500));
+
+    if i == 10 {
+      teemo.close();
+    }
   }
-  teemo.close();
 }

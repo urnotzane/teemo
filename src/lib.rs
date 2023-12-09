@@ -1,15 +1,16 @@
-
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
+use futures_util::{SinkExt, StreamExt};
 use http::Request;
 use native_tls::TlsConnector;
 use reqwest::Method;
 use serde_json::Value;
-use tokio_tungstenite::{Connector, connect_async_tls_with_config, tungstenite::Message};
+use tokio::net::TcpStream;
 use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
+use tokio_tungstenite::{connect_async_tls_with_config, tungstenite::Message, Connector, WebSocketStream, MaybeTlsStream};
 use url::Url;
-use futures_util::{StreamExt, SinkExt};
+use async_recursion::async_recursion;
 
 mod utils;
 
@@ -19,7 +20,8 @@ pub struct Teemo {
     app_port: i32,
     url: Url,
     ws_url: Url,
-    closed: bool,
+    ws_alive: bool,
+    ws_handler: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl Teemo {
@@ -29,17 +31,19 @@ impl Teemo {
             app_port: 0,
             url: Url::parse("https://127.0.0.1").unwrap(),
             ws_url: Url::parse("wss://127.0.0.1").unwrap(),
-            closed: false,
+            ws_alive: false,
+            ws_handler: None,
         }
     }
 
-    pub fn start(&mut self) {
-        self.closed = false;
+    pub async fn start(&mut self) {
         self.initialize();
+        self.start_ws().await;
     }
 
     pub fn close(&mut self) {
-        self.closed = true;
+        self.ws_alive = false;
+        self.ws_handler.take().unwrap().abort();
         println!("Armed and ready.");
     }
 
@@ -110,12 +114,11 @@ impl Teemo {
         }
     }
 
-    async fn start_ws(&self) {
-        let base_url = &format!("{}:{}", self.ws_url, self.app_port);
-    
-        let url = url::Url::parse(base_url).unwrap();
+    #[async_recursion]
+    async fn ws_connector(&mut self) -> WebSocketStream<MaybeTlsStream<TcpStream>> {
+        let url = url::Url::parse(self.ws_url.as_str()).unwrap();
         let host = url.host_str().expect("Invalid host in WebSocket URL");
-    
+
         let connector = TlsConnector::builder()
             .danger_accept_invalid_certs(true)
             .build()
@@ -123,9 +126,10 @@ impl Teemo {
         let connector = Connector::NativeTls(connector);
 
         let auth_base64 = general_purpose::STANDARD.encode(format!("riot:{}", self.app_token));
+        println!("auth_base64: {}", auth_base64);
         let request = Request::builder()
             .method("GET")
-            .uri(base_url)
+            .uri(self.ws_url.as_str())
             // LCU API认证
             .header("Authorization", format!("Basic {}", auth_base64))
             .header("Host", host)
@@ -133,25 +137,46 @@ impl Teemo {
             .header("Connection", "upgrade")
             .header("Sec-Websocket-Key", "lcu")
             .header("Sec-Websocket-Version", "13")
+            .header("Accept", "application/json, text/plain")
+            .header("Content-Type", "application/json")
             .body(())
             .unwrap();
-        println!("------开始连接{}------", base_url.as_str());
-        let (mut ws_stream, ws_res) = connect_async_tls_with_config(
-            request, None, false, Some(connector))
-            .await.expect("连接失败");
-        
-        println!("-----连接成功：{:#?}------", ws_res);
-        
-        let msgs = "[5,\"OnJsonApiEvent\"]".to_string();
-    
-        let _ = ws_stream.send(Message::Text(msgs)).await.unwrap();
-    
-        while let Some(msg) = ws_stream.next().await {
-            let msg = msg.unwrap();
-            if msg.is_text() || msg.is_binary() {
-                // msg为空时表示ws_stream.send成功
-                println!("receive msg: {}", msg);
+        println!("Attempting to establish connection with LCU websocket: {}", self.ws_url.as_str());
+        let ws_stream_res =
+            connect_async_tls_with_config(request, None, false, Some(connector))
+                .await;
+        // (ws_stream, ws_res)
+        match ws_stream_res {
+            Ok((ws_stream, _ws_res)) => {
+                println!("LCU websocket is connected.Captain Teemo on duty.");
+                self.ws_alive = true;
+                ws_stream
+            },
+            Err(err) => {
+                println!("LCU websocket connect failed.Teemo will continue to attempt after 500ms.{:#?}", err);
+                self.ws_alive = false;
+                thread::sleep(Duration::from_millis(500));
+                self.ws_connector().await
             }
         }
+    } 
+
+    async fn start_ws(&mut self) {
+        let mut ws_stream = self.ws_connector().await;
+
+        let handle = tokio::spawn(async move {
+            let msgs = "[5,\"OnJsonApiEvent\"]".to_string();
+
+            let _ = ws_stream.send(Message::Text(msgs)).await.unwrap();
+
+            while let Some(msg) = ws_stream.next().await {
+                let msg = msg.unwrap();
+                if msg.is_text() || msg.is_binary() {
+                    // msg为空时表示ws_stream.send成功
+                    println!("receive msg: {}", msg);
+                }
+            }
+        });
+        self.ws_handler = Some(handle);
     }
 }
