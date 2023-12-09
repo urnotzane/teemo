@@ -1,14 +1,17 @@
 use async_recursion::async_recursion;
 use base64::{engine::general_purpose, Engine as _};
+use futures_util::stream::{SplitStream, SplitSink};
 use futures_util::{SinkExt, StreamExt};
 use http::Request;
 use native_tls::TlsConnector;
 use reqwest::Method;
 use serde_json::Value;
+use tokio_util::codec::{Framed, LinesCodec};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::{net::TcpStream, sync::mpsc};
 use tokio_tungstenite::{
     connect_async_tls_with_config, tungstenite::Message, Connector, MaybeTlsStream, WebSocketStream,
@@ -27,6 +30,7 @@ pub struct Teemo {
     ws_thread: Option<tokio::task::JoinHandle<()>>,
     ws_sender: Option<mpsc::Sender<(String, fn(HashMap<String, Value>))>>,
     ws_tasks: HashMap<String, Vec<fn(HashMap<String, Value>)>>,
+    ws_rt: tokio::runtime::Runtime,
 }
 
 impl Teemo {
@@ -40,6 +44,7 @@ impl Teemo {
             ws_thread: None,
             ws_sender: None,
             ws_tasks: HashMap::new(),
+            ws_rt: tokio::runtime::Runtime::new().unwrap(),
         }
     }
 
@@ -174,44 +179,54 @@ impl Teemo {
     }
 
     async fn start_ws(&mut self) {
-        let mut ws_stream = self.ws_connector().await;
+        let ws_stream: WebSocketStream<MaybeTlsStream<TcpStream>> = self.ws_connector().await;
         let (ws_sender, mut ws_recv) = mpsc::channel::<(String, fn(HashMap<String, Value>))>(100);
         self.ws_sender = Some(ws_sender);
 
-        let mut ws_tasks: HashMap<String, Vec<fn(HashMap<String, Value>)>> =
-            HashMap::new();
-        let handle = tokio::spawn(async move {
-            let msgs = ws_recv.recv().await.unwrap();
-            
-            let delimiter_count = msgs.0.matches("/").count();
-            let event_str = "OnJsonApiEvent".to_string() + &msgs.0.replacen("/", "_", delimiter_count);
-            let event_str = format!("[5,\"{}\"]", event_str);
-            let _ = ws_stream.send(Message::Text(event_str)).await.unwrap();
-
-            match ws_tasks.get(&msgs.0) {
-                Some(tasks) => {
-                    let mut tasks = tasks.clone();
-                    tasks.push(msgs.1);
-                    ws_tasks.insert(msgs.0.to_string(), tasks);
+        let (mut writer, mut reader) = ws_stream.split();
+        let ws_tasks: Arc<Mutex<HashMap<String, Vec<fn(HashMap<String, Value>)>>>> = Arc::new(Mutex::new(HashMap::new()));
+        
+        let writer_tasks = Arc::clone(&ws_tasks);
+        let reader_tasks = Arc::clone(&ws_tasks);
+        let _h = self.ws_rt.spawn(async move {
+            while let Some(msgs) = ws_recv.recv().await {
+                let delimiter_count = msgs.0.matches("/").count();
+                let event_str =
+                    "OnJsonApiEvent".to_string() + &msgs.0.replacen("/", "_", delimiter_count);
+                let event_str = format!("[5,\"{}\"]", event_str);
+                if writer.send(Message::Text(event_str)).await.is_err() {
+                    eprintln!("write to client failed");
+                    break;
                 }
-                None => {
-                    let mut tasks: Vec<fn(HashMap<String, Value>)> = Vec::new();
-                    tasks.push(msgs.1);
-                    ws_tasks.insert(msgs.0.to_string(), tasks);
+                let mut unlock_tasks = writer_tasks.lock().unwrap();
+                match unlock_tasks.get(&msgs.0) {
+                    Some(tasks) => {
+                        let mut tasks = tasks.clone();
+                        tasks.push(msgs.1);
+                        unlock_tasks.insert(msgs.0.to_string(), tasks);
+                    }
+                    None => {
+                        let mut tasks: Vec<fn(HashMap<String, Value>)> = Vec::new();
+                        tasks.push(msgs.1);
+                        unlock_tasks.insert(msgs.0.to_string(), tasks);
+                    }
                 }
             }
-
-            while let Some(msg) = ws_stream.next().await {
+        });
+        let handle = self.ws_rt.spawn(async move {
+            while let Some(msg) = reader.next().await {
                 let msg = msg.unwrap();
                 if msg.is_text() || msg.is_binary() {
                     // msg为空时表示ws_stream.send成功
                     if msg.to_string().len() < 1 {
                         continue;
                     }
-                    let data: (i32, String, HashMap<String, Value>) = serde_json::from_str(&msg.to_string()).unwrap();
+                    let unlock_tasks = reader_tasks.lock().unwrap();
+                    let data: (i32, String, HashMap<String, Value>) =
+                        serde_json::from_str(&msg.to_string()).unwrap();
                     let key = data.2.get("uri").unwrap().to_string().replacen("\"", "", 2);
                     // 发送LCU ws结果
-                    for task in ws_tasks.get(&key).unwrap() {
+                    for task in unlock_tasks.get(&key).unwrap() {
                         task(data.2.clone());
                     }
                 }
