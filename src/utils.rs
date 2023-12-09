@@ -1,6 +1,15 @@
+use futures_util::stream::{SplitSink, SplitStream};
 use reqwest::{self, Client};
 #[cfg(windows)]
 use std::{collections::HashMap, os::windows::process::CommandExt, process::Command};
+use futures_util::{SinkExt, StreamExt};
+use serde_json::Value;
+use std::sync::{Arc, Mutex};
+use tokio::sync::mpsc::{Receiver};
+use tokio::{net::TcpStream};
+use tokio_tungstenite::{
+    tungstenite::Message, MaybeTlsStream, WebSocketStream,
+};
 
 #[cfg(windows)]
 pub fn execute_command(cmd_str: &str) -> String {
@@ -57,4 +66,55 @@ fn it_works() {
     );
     assert_res.insert("app-port".to_string(), "58929".to_string());
     assert_eq!(result, assert_res);
+}
+
+
+pub async fn lcu_ws_sender(
+    mut writer: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
+    mut ws_recv: Receiver<(String, fn(HashMap<String, Value>))>,
+    writer_tasks: Arc<Mutex<HashMap<String, Vec<fn(HashMap<String, Value>)>>>>,
+) {
+    while let Some(msgs) = ws_recv.recv().await {
+        let delimiter_count = msgs.0.matches("/").count();
+        let event_str =
+            "OnJsonApiEvent".to_string() + &msgs.0.replacen("/", "_", delimiter_count);
+        let event_str = format!("[5,\"{}\"]", event_str);
+        if writer.send(Message::Text(event_str)).await.is_err() {
+            eprintln!("write to client failed");
+            break;
+        }
+        let mut unlock_tasks = writer_tasks.lock().unwrap();
+        match unlock_tasks.get(&msgs.0) {
+            Some(tasks) => {
+                let mut tasks = tasks.clone();
+                tasks.push(msgs.1);
+                unlock_tasks.insert(msgs.0.to_string(), tasks);
+            }
+            None => {
+                let mut tasks: Vec<fn(HashMap<String, Value>)> = Vec::new();
+                tasks.push(msgs.1);
+                unlock_tasks.insert(msgs.0.to_string(), tasks);
+            }
+        }
+    }
+}
+
+pub async fn lcu_ws_receiver(mut reader: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>, reader_tasks: Arc<Mutex<HashMap<String, Vec<fn(HashMap<String, Value>)>>>>) {
+    while let Some(msg) = reader.next().await {
+        let msg = msg.unwrap();
+        if msg.is_text() || msg.is_binary() {
+            // msg为空时表示订阅LCU事件成功
+            if msg.to_string().len() < 1 {
+                continue;
+            }
+            let unlock_tasks = reader_tasks.lock().unwrap();
+            let data: (i32, String, HashMap<String, Value>) =
+                serde_json::from_str(&msg.to_string()).unwrap();
+            let key = data.2.get("uri").unwrap().to_string().replacen("\"", "", 2);
+            // 执行订阅的事件回调
+            for task in unlock_tasks.get(&key).unwrap() {
+                task(data.2.clone());
+            }
+        }
+    }
 }
