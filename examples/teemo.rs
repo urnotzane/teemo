@@ -10,6 +10,11 @@ async fn main() {
 async fn send_lcu_req() {
   let mut teemo = Teemo::new();
   teemo.start().await;
+  
+  teemo.subscribe("/lol-chat/v1/settings", |data| {
+    println!("----teemo.subscribe---- {:#?}", data);
+  }).await;
+
   // 发送LCU请求
   let mut i = 0;
   while i < 20 {

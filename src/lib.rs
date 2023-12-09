@@ -4,7 +4,7 @@ use http::Request;
 use native_tls::TlsConnector;
 use reqwest::Method;
 use serde_json::Value;
-use tokio::net::TcpStream;
+use tokio::{net::TcpStream, sync::mpsc};
 use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
@@ -21,7 +21,9 @@ pub struct Teemo {
     url: Url,
     ws_url: Url,
     ws_alive: bool,
-    ws_handler: Option<tokio::task::JoinHandle<()>>,
+    ws_thread: Option<tokio::task::JoinHandle<()>>,
+    ws_sender: Option<mpsc::Sender<String>>,
+    ws_tasks: HashMap<String, Vec<fn(HashMap<String, Value>)>>,
 }
 
 impl Teemo {
@@ -32,7 +34,9 @@ impl Teemo {
             url: Url::parse("https://127.0.0.1").unwrap(),
             ws_url: Url::parse("wss://127.0.0.1").unwrap(),
             ws_alive: false,
-            ws_handler: None,
+            ws_thread: None,
+            ws_sender: None,
+            ws_tasks: HashMap::new(),
         }
     }
 
@@ -43,8 +47,8 @@ impl Teemo {
 
     pub fn close(&mut self) {
         self.ws_alive = false;
-        self.ws_handler.take().unwrap().abort();
-        println!("Armed and ready.");
+        self.ws_thread.take().unwrap().abort();
+        println!("LCU websocket is closed.");
     }
 
     fn initialize(&mut self) {
@@ -145,7 +149,7 @@ impl Teemo {
         let ws_stream_res =
             connect_async_tls_with_config(request, None, false, Some(connector))
                 .await;
-        // (ws_stream, ws_res)
+            
         match ws_stream_res {
             Ok((ws_stream, _ws_res)) => {
                 println!("LCU websocket is connected.Captain Teemo on duty.");
@@ -163,20 +167,57 @@ impl Teemo {
 
     async fn start_ws(&mut self) {
         let mut ws_stream = self.ws_connector().await;
+        let (ws_sender, mut ws_recv) = mpsc::channel::<String>(100);
+        self.ws_sender = Some(ws_sender);
 
         let handle = tokio::spawn(async move {
-            let msgs = "[5,\"OnJsonApiEvent\"]".to_string();
-
-            let _ = ws_stream.send(Message::Text(msgs)).await.unwrap();
-
+            let event_msg = ws_recv.recv().await.unwrap();
+            let sender_res = ws_stream.send(Message::Text(event_msg)).await.unwrap();
+            println!("sender_res: {:?}", sender_res);
             while let Some(msg) = ws_stream.next().await {
                 let msg = msg.unwrap();
                 if msg.is_text() || msg.is_binary() {
                     // msg为空时表示ws_stream.send成功
-                    println!("receive msg: {}", msg);
+                    println!("----start_ws msg----: {:?}", &msg.to_string());
+                    if msg.to_string().len() < 1 {
+                        continue;
+                    }
+                    let data: (i32, String, HashMap<String, Value>) = serde_json::from_str(&msg.to_string()).unwrap();
+
+                    println!("----serde_json----: {:?}", data);
+                    // let key = data.2.get("uri").unwrap().to_string();
+                    // // 发送LCU ws结果
+                    // ws_tasks.get(&key).unwrap().iter().for_each(|task| {
+                    //     task(data.2.clone());
+                    // });
                 }
             }
         });
-        self.ws_handler = Some(handle);
+        self.ws_thread = Some(handle);
     }
+
+    pub async fn subscribe(&mut self, event: &str, callback: fn(HashMap<String, Value>)) {
+        let delimiter_count = event.matches("/").count();
+        let event_str = "OnJsonApiEvent".to_string() + &event.replacen("/", "_", delimiter_count);
+        let event_str = format!("[5,\"{}\"]", event_str);
+        self.ws_sender.clone().unwrap().send(event_str).await.unwrap();
+
+        match self.ws_tasks.get(event) {
+            Some(tasks) => {
+                let mut tasks = tasks.clone();
+                tasks.push(callback);
+                self.ws_tasks.insert(event.to_string(), tasks);
+            }
+            None => {
+                let mut tasks: Vec<fn(HashMap<String, Value>)> = Vec::new();
+                tasks.push(callback);
+                self.ws_tasks.insert(event.to_string(), tasks);
+            }
+        }
+        println!("[[subscribe]]: {:?}", self.ws_tasks.keys());
+    }
+    async fn dispatch() {
+
+    }
+    
 }
