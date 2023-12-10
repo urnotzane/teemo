@@ -11,8 +11,9 @@ async fn send_lcu_req() {
   let mut teemo = Teemo::new();
   teemo.start().await;
   
+  // 订阅好友列表事件
   teemo.subscribe("/lol-chat/v1/settings", |data| {
-    println!("----teemo./lol-chat/v1/settings---- {:#?}", data.get("eventType"));
+    println!("----teemo./lol-chat/v1/settings---- {:#?}", data);
   }).await;
   teemo.subscribe("/lol-chat/v1/settings", |data| {
     println!("----teemo./lol-chat/v1/settings 2222---- {:#?}", data.get("uri"));
