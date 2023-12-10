@@ -23,7 +23,6 @@ pub struct Teemo {
     ws_url: Url,
     ws_alive: bool,
     ws_sender: Option<mpsc::Sender<EventBody>>,
-    ws_rt: tokio::runtime::Runtime,
     async_tasks: Vec<tokio::task::JoinHandle<()>>,
 }
 
@@ -54,7 +53,6 @@ impl Teemo {
             ws_url: Url::parse("wss://127.0.0.1").unwrap(),
             ws_alive: false,
             ws_sender: None,
-            ws_rt: tokio::runtime::Runtime::new().unwrap(),
             async_tasks: Vec::new(),
         }
     }
@@ -66,7 +64,6 @@ impl Teemo {
 
     pub fn close(&mut self) {
         self.ws_alive = false;
-        // 提前abort会导致程序退出之前drop runtime失败
         for task in self.async_tasks.drain(..) {
             task.abort();
         }
@@ -187,11 +184,11 @@ impl Teemo {
         let writer_tasks = Arc::clone(&ws_tasks);
         let reader_tasks = Arc::clone(&ws_tasks);
         // 记录订阅事件，发送订阅事件至LCU
-        let send_task = self.ws_rt.spawn(async move {
+        let send_task = tokio::spawn(async move {
             utils::lcu_ws_sender(writer, ws_recv, writer_tasks).await;
         });
         // 处理LCU返回的事件，并执行回调函数
-        let receive_task = self.ws_rt.spawn(async move {
+        let receive_task = tokio::spawn(async move {
             utils::lcu_ws_receiver(reader, reader_tasks).await;
         });
 
