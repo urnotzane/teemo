@@ -7,7 +7,6 @@ description = "A League of Legends API wrapper for Rust"
 repository = "https://github.com/urnotzane/teemo.git"
 license = "MIT"
 keywords = ["LOL", "riot", "LCU"]
-readme = "https://github.com/urnotzane/teemo/blob/main/README.md"
 exclude = [
   ".gitignore",
 ]
