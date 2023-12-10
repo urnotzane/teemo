@@ -1,6 +1,8 @@
 # Teemo
 > 不要低估迅捷斥候的威力。
 
+本项目用于和英雄联盟游戏客户端进行请求和通信。
+
 # 使用 Usage
 本项目适用于：
 - Windows
@@ -13,10 +15,6 @@ use teemo::Teemo;
 
 #[tokio::main]
 async fn main() {
-  send_lcu_req().await;
-}
-
-async fn send_lcu_req() {
   let mut teemo = Teemo::new();
   teemo.start().await;
   
