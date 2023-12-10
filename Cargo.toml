@@ -8,6 +8,9 @@ repository = "https://github.com/urnotzane/teemo.git"
 license = "MIT"
 keywords = ["League of Legends", "riot", "LCU", "LOL"]
 readme = "README.md"
+exclude = [
+  ".gitignore",
+]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
