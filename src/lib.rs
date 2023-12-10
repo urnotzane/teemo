@@ -1,13 +1,11 @@
 use async_recursion::async_recursion;
-use base64::{engine::general_purpose, Engine as _};
 use futures_util::StreamExt;
-use http::Request;
 use native_tls::TlsConnector;
 use reqwest::Method;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::thread;
+use std::{thread, fmt};
 use std::time::Duration;
 use tokio::{net::TcpStream, sync::mpsc};
 use tokio_tungstenite::{
@@ -24,10 +22,28 @@ pub struct Teemo {
     url: Url,
     ws_url: Url,
     ws_alive: bool,
-    ws_sender: Option<mpsc::Sender<(String, fn(HashMap<String, Value>))>>,
+    ws_sender: Option<mpsc::Sender<EventBody>>,
     ws_rt: tokio::runtime::Runtime,
     async_tasks: Vec<tokio::task::JoinHandle<()>>,
 }
+
+#[derive(PartialEq, Clone)]
+pub enum EventType {
+    Subscribe = 5,
+    Unsubscribe = 6,
+    Update = 8,
+}
+impl fmt::Debug for EventType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Subscribe => write!(f, "{}", 5),
+            Self::Unsubscribe => write!(f, "{}", 6),
+            Self::Update => write!(f, "{}", 8),
+        }
+    }
+}
+pub type EventCallback = fn(HashMap<String, Value>);
+pub type EventBody = (EventType, String, EventCallback);
 
 impl Teemo {
     pub fn new() -> Teemo {
@@ -50,6 +66,7 @@ impl Teemo {
 
     pub fn close(&mut self) {
         self.ws_alive = false;
+        // 提前abort会导致程序退出之前drop runtime失败
         for task in self.async_tasks.drain(..) {
             task.abort();
         }
@@ -126,30 +143,13 @@ impl Teemo {
     #[async_recursion]
     async fn ws_connector(&mut self) -> WebSocketStream<MaybeTlsStream<TcpStream>> {
         let url = url::Url::parse(self.ws_url.as_str()).unwrap();
-        let host = url.host_str().expect("Invalid host in WebSocket URL");
 
         let connector = TlsConnector::builder()
             .danger_accept_invalid_certs(true)
             .build()
             .unwrap();
         let connector = Connector::NativeTls(connector);
-
-        let auth_base64 = general_purpose::STANDARD.encode(format!("riot:{}", self.app_token));
-        println!("auth_base64: {}", auth_base64);
-        let request = Request::builder()
-            .method("GET")
-            .uri(self.ws_url.as_str())
-            // LCU API认证
-            .header("Authorization", format!("Basic {}", auth_base64))
-            .header("Host", host)
-            .header("Upgrade", "websocket")
-            .header("Connection", "upgrade")
-            .header("Sec-Websocket-Key", "lcu")
-            .header("Sec-Websocket-Version", "13")
-            .header("Accept", "application/json, text/plain")
-            .header("Content-Type", "application/json")
-            .body(())
-            .unwrap();
+        let request = utils::create_ws_request(&self.app_token, url);
         println!(
             "Attempting to establish connection with LCU websocket: {}",
             self.ws_url.as_str()
@@ -177,11 +177,11 @@ impl Teemo {
 
     async fn start_ws(&mut self) {
         let ws_stream: WebSocketStream<MaybeTlsStream<TcpStream>> = self.ws_connector().await;
-        let (ws_sender, ws_recv) = mpsc::channel::<(String, fn(HashMap<String, Value>))>(100);
+        let (ws_sender, ws_recv) = mpsc::channel::<EventBody>(100);
         self.ws_sender = Some(ws_sender);
 
         let (writer, reader) = ws_stream.split();
-        let ws_tasks: Arc<Mutex<HashMap<String, Vec<fn(HashMap<String, Value>)>>>> =
+        let ws_tasks: Arc<Mutex<HashMap<String, Vec<EventCallback>>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
         let writer_tasks = Arc::clone(&ws_tasks);
@@ -198,11 +198,20 @@ impl Teemo {
         self.async_tasks.extend([send_task, receive_task]);
     }
 
-    pub async fn subscribe(&mut self, event: &str, callback: fn(HashMap<String, Value>)) {
+    pub async fn subscribe(&mut self, event: &str, callback: EventCallback) {
         self.ws_sender
             .clone()
             .unwrap()
-            .send((event.to_string(), callback))
+            .send((EventType::Subscribe, event.to_string(), callback))
+            .await
+            .unwrap();
+    }
+
+    pub async fn unsubscribe(&mut self, event: &str) {
+        self.ws_sender
+            .clone()
+            .unwrap()
+            .send((EventType::Unsubscribe, event.to_string(), utils::empty_callback))
             .await
             .unwrap();
     }

@@ -1,5 +1,9 @@
+use base64::Engine;
+use base64::engine::general_purpose;
 use futures_util::stream::{SplitSink, SplitStream};
 use reqwest::{self, Client};
+use http::Request;
+use url::Url;
 #[cfg(windows)]
 use std::{collections::HashMap, os::windows::process::CommandExt, process::Command};
 use futures_util::{SinkExt, StreamExt};
@@ -10,6 +14,8 @@ use tokio::{net::TcpStream};
 use tokio_tungstenite::{
     tungstenite::Message, MaybeTlsStream, WebSocketStream,
 };
+
+use crate::{EventCallback, EventBody, EventType};
 
 #[cfg(windows)]
 pub fn execute_command(cmd_str: &str) -> String {
@@ -46,11 +52,29 @@ fn format_lcu_data(data_str: String) -> HashMap<String, String> {
     }
     data_map
 }
-pub fn create_client() -> Client {
+pub(crate) fn create_client() -> Client {
     reqwest::Client::builder()
         .danger_accept_invalid_certs(true)
         .no_proxy()
         .build()
+        .unwrap()
+}
+pub(crate) fn create_ws_request(token: &str, url: Url) -> Request<()> {
+    let auth_base64 = general_purpose::STANDARD.encode(format!("riot:{}", token));
+    let host = url.host_str().expect("Invalid host in WebSocket URL");
+    Request::builder()
+        .method("GET")
+        .uri(url.as_str())
+        // LCU API认证
+        .header("Authorization", format!("Basic {}", auth_base64))
+        .header("Host", host)
+        .header("Upgrade", "websocket")
+        .header("Connection", "upgrade")
+        .header("Sec-Websocket-Key", "lcu")
+        .header("Sec-Websocket-Version", "13")
+        .header("Accept", "application/json, text/plain")
+        .header("Content-Type", "application/json")
+        .body(())
         .unwrap()
 }
 
@@ -68,38 +92,51 @@ fn it_works() {
     assert_eq!(result, assert_res);
 }
 
+pub fn format_event_type(event:&str, event_type:EventType) -> String {
+    let delimiter_count = event.matches("/").count();
+    let event_str =
+        "OnJsonApiEvent".to_string() + &event.replacen("/", "_", delimiter_count);
 
-pub async fn lcu_ws_sender(
+    format!("[{:?},\"{}\"]", event_type, event_str)
+}
+
+pub(crate) async fn lcu_ws_sender(
     mut writer: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
-    mut ws_recv: Receiver<(String, fn(HashMap<String, Value>))>,
-    writer_tasks: Arc<Mutex<HashMap<String, Vec<fn(HashMap<String, Value>)>>>>,
+    mut ws_recv: Receiver<EventBody>,
+    writer_tasks: Arc<Mutex<HashMap<String, Vec<EventCallback>>>>,
 ) {
     while let Some(msgs) = ws_recv.recv().await {
-        let delimiter_count = msgs.0.matches("/").count();
-        let event_str =
-            "OnJsonApiEvent".to_string() + &msgs.0.replacen("/", "_", delimiter_count);
-        let event_str = format!("[5,\"{}\"]", event_str);
+        let (event_type, event, event_callback) = msgs;
+        let event_str = format_event_type(&event, event_type.clone());
+        
         if writer.send(Message::Text(event_str)).await.is_err() {
             eprintln!("write to client failed");
             break;
         }
         let mut unlock_tasks = writer_tasks.lock().unwrap();
-        match unlock_tasks.get(&msgs.0) {
+        // 取消订阅
+        if event_type == EventType::Unsubscribe {
+            unlock_tasks.remove(&event);
+            continue;
+        }
+        match unlock_tasks.get(&event) {
+            // 新增该型事件回调
             Some(tasks) => {
                 let mut tasks = tasks.clone();
-                tasks.push(msgs.1);
-                unlock_tasks.insert(msgs.0.to_string(), tasks);
+                tasks.push(event_callback);
+                unlock_tasks.insert(event.to_string(), tasks);
             }
+            // 新增订阅
             None => {
                 let mut tasks: Vec<fn(HashMap<String, Value>)> = Vec::new();
-                tasks.push(msgs.1);
-                unlock_tasks.insert(msgs.0.to_string(), tasks);
+                tasks.push(event_callback);
+                unlock_tasks.insert(event.to_string(), tasks);
             }
         }
     }
 }
 
-pub async fn lcu_ws_receiver(mut reader: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>, reader_tasks: Arc<Mutex<HashMap<String, Vec<fn(HashMap<String, Value>)>>>>) {
+pub(crate) async fn lcu_ws_receiver(mut reader: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>, reader_tasks: Arc<Mutex<HashMap<String, Vec<EventCallback>>>>) {
     while let Some(msg) = reader.next().await {
         let msg = msg.unwrap();
         if msg.is_text() || msg.is_binary() {
@@ -118,3 +155,5 @@ pub async fn lcu_ws_receiver(mut reader: SplitStream<WebSocketStream<MaybeTlsStr
         }
     }
 }
+
+pub(crate) fn empty_callback(_data: HashMap<String, Value>) {}

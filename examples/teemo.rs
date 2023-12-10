@@ -28,7 +28,8 @@ async fn send_lcu_req() {
     thread::sleep(Duration::from_millis(500));
 
     if i == 10 {
-      teemo.close();
+      println!("取消订阅/lol-chat/v1/settings");
+      teemo.unsubscribe("/lol-chat/v1/settings").await;
     }
   }
 }

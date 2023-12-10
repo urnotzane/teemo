@@ -18,3 +18,6 @@ https://hextechdocs.dev/getting-started-with-the-lcu-websocket/
 - 若401，返回至1；
 - 若被拒绝，返回至1;
 - 若关闭程序，停止所有循环。
+
+## 如何关闭 vscode 的 rust-analyzer 插件的自动类型提示
+https://zhuanlan.zhihu.com/p/535828881
