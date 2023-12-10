@@ -6,7 +6,8 @@ authors = ["urnotzane <urnotzane@gmail.com>"]
 description = "A League of Legends API wrapper for Rust"
 repository = "https://github.com/urnotzane/teemo.git"
 license = "MIT"
-keywords = ["League of Legends", "riot", "LCU", "rust"]
+keywords = ["League of Legends", "riot", "LCU", "LOL"]
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
