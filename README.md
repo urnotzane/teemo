@@ -2,6 +2,9 @@
 > 不要低估迅捷斥候的威力。
 
 # 使用 Usage
+本项目适用于：
+- Windows
+- League Of Legends
 ## 事件 Event
 在`https://127.0.0.1:<PORT>/help`可以查看
 ## 示例 Example
