@@ -9,32 +9,8 @@
 - League Of Legends
 ## 事件 Event
 在`https://127.0.0.1:<PORT>/help`可以查看
-## 示例 Example
-```rust
-use teemo::Teemo;
-
-#[tokio::main]
-async fn main() {
-  let mut teemo = Teemo::new();
-  teemo.start().await;
-  
-  // 订阅好友列表事件
-  teemo.subscribe("/lol-chat/v1/settings", |data| {
-    println!("----teemo./lol-chat/v1/settings---- {:#?}", data);
-  }).await;
-  teemo.subscribe("/lol-chat/v1/settings", |data| {
-    println!("----teemo./lol-chat/v1/settings 2222---- {:#?}", data.get("uri"));
-  }).await;
-
-  // 发送LCU请求
-  let summoner = teemo.request("GET", "lol-summoner/v1/current-summoner", None).await;
-  println!("{:#?}", summoner.get("displayName"));
-  
-  
-  println!("取消订阅/lol-chat/v1/settings");
-  teemo.unsubscribe("/lol-chat/v1/settings").await;
-}
-```
+## 示例
+[示例](./examples/teemo.rs)
 
 # 其它
 ## LCU websocket
