@@ -9,7 +9,8 @@ async fn main() {
 
 async fn send_lcu_req() {
   let mut teemo = Teemo::new();
-  teemo.start().await;
+  teemo.start();
+  teemo.start_ws().await;
   
   // 订阅好友列表事件
   teemo.subscribe("/lol-chat/v1/settings", |data| {

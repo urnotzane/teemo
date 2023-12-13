@@ -5,8 +5,8 @@ use reqwest::Method;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::{thread, fmt};
 use std::time::Duration;
+use std::{fmt, thread};
 use tokio::{net::TcpStream, sync::mpsc};
 use tokio_tungstenite::{
     connect_async_tls_with_config, Connector, MaybeTlsStream, WebSocketStream,
@@ -17,9 +17,9 @@ mod utils;
 
 #[derive(Debug)]
 pub struct Teemo {
-    app_token: String,
-    app_port: i32,
-    url: Url,
+    pub app_token: String,
+    pub app_port: i32,
+    pub url: Url,
     ws_url: Url,
     ws_alive: bool,
     ws_sender: Option<mpsc::Sender<EventBody>>,
@@ -56,24 +56,29 @@ impl Teemo {
             async_tasks: Vec::new(),
         }
     }
-
-    pub async fn start(&mut self) {
+    /// Initialize LCU `remoting-token` and `app-port`.
+    ///
+    /// After this,`teemo.request` can be used.
+    pub fn start(&mut self) {
         self.initialize();
-        self.start_ws().await;
     }
-
+    /// Close all teemo service except `teemo.request`.
     pub fn close(&mut self) {
+        self.close_ws();
+        println!("LCU websocket is closed.");
+    }
+    /// Only close websocket with LCU.
+    pub fn close_ws(&mut self) {
         self.ws_alive = false;
         for task in self.async_tasks.drain(..) {
             task.abort();
         }
-        println!("LCU websocket is closed.");
     }
 
     fn initialize(&mut self) {
         let remote_data = utils::get_lcu_cmd_data();
         if remote_data.len() < 2 {
-            println!("LCU is not running.");
+            println!("LCU is not running.Teemo will try again after 500ms.");
             thread::sleep(Duration::from_millis(500));
             self.initialize();
             return;
@@ -90,9 +95,6 @@ impl Teemo {
             Url::parse(&("https://127.0.0.1:".to_string() + &self.app_port.to_string())).unwrap();
         self.ws_url =
             Url::parse(&("wss://127.0.0.1:".to_string() + &self.app_port.to_string())).unwrap();
-
-        println!("Teemo has finished initializing.");
-        println!("LCU is running on {}, token: {}", self.url, self.app_token);
     }
 
     /// 用来发送LCU请求
@@ -171,8 +173,10 @@ impl Teemo {
             }
         }
     }
-
-    async fn start_ws(&mut self) {
+    /// Connect to LCU websocket.
+    ///
+    /// After this,u can subscribe websocket event.
+    pub async fn start_ws(&mut self) {
         let ws_stream: WebSocketStream<MaybeTlsStream<TcpStream>> = self.ws_connector().await;
         let (ws_sender, ws_recv) = mpsc::channel::<EventBody>(100);
         self.ws_sender = Some(ws_sender);
@@ -208,7 +212,11 @@ impl Teemo {
         self.ws_sender
             .clone()
             .unwrap()
-            .send((EventType::Unsubscribe, event.to_string(), utils::empty_callback))
+            .send((
+                EventType::Unsubscribe,
+                event.to_string(),
+                utils::empty_callback,
+            ))
             .await
             .unwrap();
     }

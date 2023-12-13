@@ -9,8 +9,8 @@ use std::{collections::HashMap, os::windows::process::CommandExt, process::Comma
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc::{Receiver};
-use tokio::{net::TcpStream};
+use tokio::sync::mpsc::Receiver;
+use tokio::net::TcpStream;
 use tokio_tungstenite::{
     tungstenite::Message, MaybeTlsStream, WebSocketStream,
 };
