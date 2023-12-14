@@ -3,6 +3,7 @@ use futures_util::StreamExt;
 use native_tls::TlsConnector;
 use reqwest::Method;
 use serde_json::Value;
+use utils::empty_callback;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -41,7 +42,7 @@ impl fmt::Debug for EventType {
         }
     }
 }
-pub type EventCallback = fn(HashMap<String, Value>);
+pub type EventCallback = Arc<dyn Fn(HashMap<String, Value>) + Send + Sync>;
 pub type EventBody = (EventType, String, EventCallback);
 
 impl Teemo {
@@ -215,7 +216,7 @@ impl Teemo {
             .send((
                 EventType::Unsubscribe,
                 event.to_string(),
-                utils::empty_callback,
+               Arc::new(empty_callback),
             ))
             .await
             .unwrap();

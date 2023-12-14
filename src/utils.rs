@@ -128,7 +128,7 @@ pub(crate) async fn lcu_ws_sender(
             }
             // 新增订阅
             None => {
-                let mut tasks: Vec<fn(HashMap<String, Value>)> = Vec::new();
+                let mut tasks: Vec<EventCallback> = Vec::new();
                 tasks.push(event_callback);
                 unlock_tasks.insert(event.to_string(), tasks);
             }
@@ -150,7 +150,8 @@ pub(crate) async fn lcu_ws_receiver(mut reader: SplitStream<WebSocketStream<Mayb
             let key = data.2.get("uri").unwrap().to_string().replacen("\"", "", 2);
             // 执行订阅的事件回调
             for task in unlock_tasks.get(&key).unwrap() {
-                task(data.2.clone());
+                let callback = task.clone();
+                (*callback)(data.2.clone());
             }
         }
     }
