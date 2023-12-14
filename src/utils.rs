@@ -1,21 +1,37 @@
-use base64::Engine;
+use crate::{EventBody, EventCallback, EventType};
 use base64::engine::general_purpose;
+use base64::Engine;
 use futures_util::stream::{SplitSink, SplitStream};
-use reqwest::{self, Client};
-use http::Request;
-use url::Url;
-#[cfg(windows)]
-use std::{collections::HashMap, os::windows::process::CommandExt, process::Command};
 use futures_util::{SinkExt, StreamExt};
+use http::Request;
+use reqwest::{self, Client};
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc::Receiver;
+#[cfg(windows)]
+use std::{collections::HashMap, os::windows::process::CommandExt, process::Command};
 use tokio::net::TcpStream;
-use tokio_tungstenite::{
-    tungstenite::Message, MaybeTlsStream, WebSocketStream,
-};
+use tokio::sync::mpsc::Receiver;
+use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use url::Url;
 
-use crate::{EventCallback, EventBody, EventType};
+#[test]
+fn it_works() {
+    let mut assert_res = HashMap::new();
+    assert_res.insert(
+        "remoting-auth-token".to_string(),
+        "_BkC3zoDF6600gmlQdUs6w".to_string(),
+    );
+    assert_res.insert("app-port".to_string(), "58929".to_string());
+    assert_eq!(
+        format_lcu_data(
+            "\"--remoting-auth-token=_BkC3zoDF6600gmlQdUs6w\" \"--app-port=58929\"".to_string(),
+        ),
+        assert_res
+    );
+    // For `fn format_event_type`
+    assert_eq!(format_event_type("/lol-summoner", EventType::Subscribe), "[5,\"OnJsonApiEvent_lol-summoner\"]");
+    assert_eq!(format_event_type("Exit", EventType::Subscribe), "[5,\"Exit\"]");
+}
 
 #[cfg(windows)]
 pub fn execute_command(cmd_str: &str) -> String {
@@ -78,24 +94,12 @@ pub(crate) fn create_ws_request(token: &str, url: Url) -> Request<()> {
         .unwrap()
 }
 
-#[test]
-fn it_works() {
-    let result = format_lcu_data(
-        "\"--remoting-auth-token=_BkC3zoDF6600gmlQdUs6w\" \"--app-port=58929\"".to_string(),
-    );
-    let mut assert_res = HashMap::new();
-    assert_res.insert(
-        "remoting-auth-token".to_string(),
-        "_BkC3zoDF6600gmlQdUs6w".to_string(),
-    );
-    assert_res.insert("app-port".to_string(), "58929".to_string());
-    assert_eq!(result, assert_res);
-}
-
-pub fn format_event_type(event:&str, event_type:EventType) -> String {
+pub fn format_event_type(event: &str, event_type: EventType) -> String {
     let delimiter_count = event.matches("/").count();
-    let event_str =
-        "OnJsonApiEvent".to_string() + &event.replacen("/", "_", delimiter_count);
+    let event_str = match delimiter_count {
+        0 => event.to_string(),
+        _ => "OnJsonApiEvent".to_string() + &event.replacen("/", "_", delimiter_count),
+    };
 
     format!("[{:?},\"{}\"]", event_type, event_str)
 }
@@ -108,7 +112,7 @@ pub(crate) async fn lcu_ws_sender(
     while let Some(msgs) = ws_recv.recv().await {
         let (event_type, event, event_callback) = msgs;
         let event_str = format_event_type(&event, event_type.clone());
-        
+
         if writer.send(Message::Text(event_str)).await.is_err() {
             eprintln!("write to client failed");
             break;
@@ -136,22 +140,39 @@ pub(crate) async fn lcu_ws_sender(
     }
 }
 
-pub(crate) async fn lcu_ws_receiver(mut reader: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>, reader_tasks: Arc<Mutex<HashMap<String, Vec<EventCallback>>>>) {
+pub(crate) async fn lcu_ws_receiver(
+    mut reader: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+    reader_tasks: Arc<Mutex<HashMap<String, Vec<EventCallback>>>>,
+) {
     while let Some(msg) = reader.next().await {
-        let msg = msg.unwrap();
+        let msg = match msg {
+            Ok(msg) => msg,
+            Err(err) => {
+                println!("LCU websocket connection failed: {:?}", err);
+                break;
+            },
+        };
         if msg.is_text() || msg.is_binary() {
             // msg为空时表示订阅LCU事件成功
             if msg.to_string().len() < 1 {
                 continue;
             }
+            println!("Received websocket message: {:?}", msg);
             let unlock_tasks = reader_tasks.lock().unwrap();
             let data: (i32, String, HashMap<String, Value>) =
                 serde_json::from_str(&msg.to_string()).unwrap();
             let key = data.2.get("uri").unwrap().to_string().replacen("\"", "", 2);
             // 执行订阅的事件回调
-            for task in unlock_tasks.get(&key).unwrap() {
-                let callback = task.clone();
-                (*callback)(data.2.clone());
+            match unlock_tasks.get(&key) {
+                Some(callbacks) => {
+                    for cb in callbacks {
+                        let callback = cb.clone();
+                        (*callback)(data.2.clone());
+                    }
+                }
+                None => {
+                    println!("Event {} has no callbacks.", key);
+                }
             }
         }
     }

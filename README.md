@@ -8,7 +8,9 @@
 - Windows
 - League Of Legends
 ## 事件 Event
-在`https://127.0.0.1:<PORT>/help`可以查看
+在`https://127.0.0.1:<PORT>/help`可以查看。
+
+需要注意的是：如果注册了某事件，会触发这个事件及其所有子事件。比如注册`/lol-lobby/v2/lobby`事件，那么`/lol-lobby/v2/lobby/members`也会触发事件回调.
 ## 示例
 [示例](./examples/teemo.rs)
 
@@ -33,3 +35,11 @@ https://hextechdocs.dev/getting-started-with-the-lcu-websocket/
 
 ## 如何关闭 vscode 的 rust-analyzer 插件的自动类型提示
 https://zhuanlan.zhihu.com/p/535828881
+
+## LCU主动关闭ws
+```bash
+word": String("UWpTutcT0rme7Lfw"), "partyId": String("INVID4148783830"), "partyType": String(""), "restrictions": Null, "scarcePositions": Array [], "warnings": Null}, "uri": String("/lol-lobby/v2/lobby")}
+thread 'tokio-runtime-worker' panicked at E:\Users\wa\Documents\codes\Teemo\src\utils.rs:148:23:
+called `Result::unwrap()` on an `Err` value: Io(Os { code: 10054, kind: ConnectionReset, message: "远程主机强迫关闭了一 个现有的连接。" })
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+```

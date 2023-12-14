@@ -3,7 +3,6 @@ use futures_util::StreamExt;
 use native_tls::TlsConnector;
 use reqwest::Method;
 use serde_json::Value;
-use utils::empty_callback;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -13,6 +12,7 @@ use tokio_tungstenite::{
     connect_async_tls_with_config, Connector, MaybeTlsStream, WebSocketStream,
 };
 use url::Url;
+use utils::empty_callback;
 
 mod utils;
 
@@ -142,35 +142,37 @@ impl Teemo {
 
     #[async_recursion]
     async fn ws_connector(&mut self) -> WebSocketStream<MaybeTlsStream<TcpStream>> {
-        let url = url::Url::parse(self.ws_url.as_str()).unwrap();
+        loop {
+            let url = url::Url::parse(self.ws_url.as_str()).unwrap();
 
-        let connector = TlsConnector::builder()
-            .danger_accept_invalid_certs(true)
-            .build()
-            .unwrap();
-        let connector = Connector::NativeTls(connector);
-        let request = utils::create_ws_request(&self.app_token, url);
-        println!(
-            "Attempting to establish connection with LCU websocket: {}",
-            self.ws_url.as_str()
-        );
-        let ws_stream_res =
-            connect_async_tls_with_config(request, None, false, Some(connector)).await;
+            let connector = TlsConnector::builder()
+                .danger_accept_invalid_certs(true)
+                .build()
+                .unwrap();
+            let connector = Connector::NativeTls(connector);
+            let request = utils::create_ws_request(&self.app_token, url);
+            println!(
+                "Attempting to establish connection with LCU websocket: {}",
+                self.ws_url.as_str()
+            );
+            let ws_stream_res =
+                connect_async_tls_with_config(request, None, false, Some(connector)).await;
 
-        match ws_stream_res {
-            Ok((ws_stream, _ws_res)) => {
-                println!("LCU websocket is connected.Captain Teemo on duty.");
-                self.ws_alive = true;
-                ws_stream
-            }
-            Err(err) => {
-                println!(
-                    "LCU websocket connect failed.Teemo will continue to attempt after 500ms.{:#?}",
-                    err
-                );
-                self.ws_alive = false;
-                thread::sleep(Duration::from_millis(500));
-                self.ws_connector().await
+            match ws_stream_res {
+                Ok((ws_stream, _ws_res)) => {
+                    println!("LCU websocket is connected.Captain Teemo on duty.");
+                    self.ws_alive = true;
+                    break ws_stream;
+                }
+                Err(err) => {
+                    println!(
+                        "LCU websocket connect failed.Teemo will continue to attempt after 500ms.{:#?}",
+                        err
+                    );
+                    self.ws_alive = false;
+                    thread::sleep(Duration::from_millis(500));
+                    continue;
+                }
             }
         }
     }
@@ -216,7 +218,7 @@ impl Teemo {
             .send((
                 EventType::Unsubscribe,
                 event.to_string(),
-               Arc::new(empty_callback),
+                Arc::new(empty_callback),
             ))
             .await
             .unwrap();
