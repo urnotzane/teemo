@@ -951,7 +951,7 @@ dependencies = [
 
 [[package]]
 name = "teemo"
-version = "0.1.2-beta.1"
+version = "0.1.3-beta.1"
 dependencies = [
  "async-recursion",
  "base64",
