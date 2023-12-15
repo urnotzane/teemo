@@ -44,6 +44,7 @@ impl fmt::Debug for EventType {
 }
 pub type EventCallback = Arc<dyn Fn(HashMap<String, Value>) + Send + Sync>;
 pub type EventBody = (EventType, String, EventCallback);
+pub type EventTasks = Arc<Mutex<HashMap<String, Vec<EventCallback>>>>;
 
 impl Teemo {
     pub fn new() -> Teemo {
@@ -185,8 +186,7 @@ impl Teemo {
         self.ws_sender = Some(ws_sender);
 
         let (writer, reader) = ws_stream.split();
-        let ws_tasks: Arc<Mutex<HashMap<String, Vec<EventCallback>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let ws_tasks: EventTasks = Arc::new(Mutex::new(HashMap::new()));
 
         let writer_tasks = Arc::clone(&ws_tasks);
         let reader_tasks = Arc::clone(&ws_tasks);

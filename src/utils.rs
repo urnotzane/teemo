@@ -1,4 +1,4 @@
-use crate::{EventBody, EventCallback, EventType};
+use crate::{EventBody, EventCallback, EventType, EventTasks};
 use base64::engine::general_purpose;
 use base64::Engine;
 use futures_util::stream::{SplitSink, SplitStream};
@@ -6,7 +6,6 @@ use futures_util::{SinkExt, StreamExt};
 use http::Request;
 use reqwest::{self, Client};
 use serde_json::Value;
-use std::sync::{Arc, Mutex};
 #[cfg(windows)]
 use std::{collections::HashMap, os::windows::process::CommandExt, process::Command};
 use tokio::net::TcpStream;
@@ -31,6 +30,8 @@ fn it_works() {
     // For `fn format_event_type`
     assert_eq!(format_event_type("/lol-summoner", EventType::Subscribe), "[5,\"OnJsonApiEvent_lol-summoner\"]");
     assert_eq!(format_event_type("Exit", EventType::Subscribe), "[5,\"Exit\"]");
+    // For `fn revert_event_type`
+    assert_eq!(revert_event_type("OnJsonApiEvent_lol-lobby_v2_lobby".to_string()), "/lol-lobby/v2/lobby".to_string());
 }
 
 #[cfg(windows)]
@@ -104,10 +105,16 @@ pub fn format_event_type(event: &str, event_type: EventType) -> String {
     format!("[{:?},\"{}\"]", event_type, event_str)
 }
 
+pub fn revert_event_type(event: String) -> String {
+    let delimiter_count = event.matches("_").count();
+    let event_uri = event.replacen("OnJsonApiEvent", "", 1);
+    event_uri.replacen("_", "/", delimiter_count)
+}
+
 pub(crate) async fn lcu_ws_sender(
     mut writer: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
     mut ws_recv: Receiver<EventBody>,
-    writer_tasks: Arc<Mutex<HashMap<String, Vec<EventCallback>>>>,
+    writer_tasks: EventTasks,
 ) {
     while let Some(msgs) = ws_recv.recv().await {
         let (event_type, event, event_callback) = msgs;
@@ -142,7 +149,7 @@ pub(crate) async fn lcu_ws_sender(
 
 pub(crate) async fn lcu_ws_receiver(
     mut reader: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
-    reader_tasks: Arc<Mutex<HashMap<String, Vec<EventCallback>>>>,
+    reader_tasks: EventTasks,
 ) {
     while let Some(msg) = reader.next().await {
         let msg = match msg {
@@ -161,7 +168,7 @@ pub(crate) async fn lcu_ws_receiver(
             let unlock_tasks = reader_tasks.lock().unwrap();
             let data: (i32, String, HashMap<String, Value>) =
                 serde_json::from_str(&msg.to_string()).unwrap();
-            let key = data.2.get("uri").unwrap().to_string().replacen("\"", "", 2);
+            let key = revert_event_type(data.1);
             // 执行订阅的事件回调
             match unlock_tasks.get(&key) {
                 Some(callbacks) => {
