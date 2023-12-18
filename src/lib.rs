@@ -1,7 +1,6 @@
 use async_recursion::async_recursion;
 use futures_util::StreamExt;
 use native_tls::TlsConnector;
-use reqwest::Method;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -14,6 +13,7 @@ use tokio_tungstenite::{
 use url::Url;
 use utils::empty_callback;
 
+mod request;
 mod utils;
 
 #[derive(Debug)]
@@ -99,46 +99,30 @@ impl Teemo {
             Url::parse(&("wss://127.0.0.1:".to_string() + &self.app_port.to_string())).unwrap();
     }
 
-    /// 用来发送LCU请求
+    /// Send request to LCU.
     pub async fn request(
         &self,
         method: &str,
         url: &str,
         data: Option<HashMap<String, Value>>,
     ) -> HashMap<String, Value> {
-        let mut error_res: HashMap<String, Value> = HashMap::new();
-        error_res.insert("code".to_string(), serde_json::json!(500));
-        error_res.insert(
-            "message".to_string(),
-            serde_json::json!("LCU service error."),
-        );
-
-        if self.app_token.len() < 1 {
-            return error_res;
-        }
-
-        let method_byte = method.as_bytes();
         let full_url = format!("{}{}", self.url, url);
 
-        let request = utils::create_client()
-            .request(Method::from_bytes(method_byte).unwrap(), full_url)
-            .basic_auth("riot", Some(&self.app_token))
-            .header("Accept", "application/json, text/plain")
-            .header("Content-Type", "application/json")
-            .json(&data)
-            .send()
-            .await;
+        request::send(method, &full_url, data).await
+    }
+    /// LOL ingame api.
+    ///
+    /// You can only connect when the game match is in progress.
+    pub async fn live_request(
+        &self,
+        method: &str,
+        url: &str,
+        data: Option<HashMap<String, Value>>,
+    ) -> HashMap<String, Value> {
+        let live_url = "https://127.0.0.1:2999/";
+        let full_url = format!("{}{}", live_url, url);
 
-        match request {
-            Ok(request) => {
-                let response = request.text().await.unwrap();
-                serde_json::from_str(&response).unwrap()
-            }
-            Err(err) => {
-                println!("LCU service error: {:?}", err);
-                error_res
-            }
-        }
+        request::send(method, &full_url, data).await
     }
 
     #[async_recursion]
@@ -151,7 +135,7 @@ impl Teemo {
                 .build()
                 .unwrap();
             let connector = Connector::NativeTls(connector);
-            let request = utils::create_ws_request(&self.app_token, url);
+            let request = request::create_ws_request(&self.app_token, url);
             println!(
                 "Attempting to establish connection with LCU websocket: {}",
                 self.ws_url.as_str()

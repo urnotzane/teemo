@@ -1,17 +1,12 @@
 use crate::{EventBody, EventCallback, EventType, EventTasks};
-use base64::engine::general_purpose;
-use base64::Engine;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
-use http::Request;
-use reqwest::{self, Client};
 use serde_json::Value;
 #[cfg(windows)]
 use std::{collections::HashMap, os::windows::process::CommandExt, process::Command};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::Receiver;
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
-use url::Url;
 
 #[test]
 fn it_works() {
@@ -70,31 +65,6 @@ fn format_lcu_data(data_str: String) -> HashMap<String, String> {
         );
     }
     data_map
-}
-pub(crate) fn create_client() -> Client {
-    reqwest::Client::builder()
-        .danger_accept_invalid_certs(true)
-        .no_proxy()
-        .build()
-        .unwrap()
-}
-pub(crate) fn create_ws_request(token: &str, url: Url) -> Request<()> {
-    let auth_base64 = general_purpose::STANDARD.encode(format!("riot:{}", token));
-    let host = url.host_str().expect("Invalid host in WebSocket URL");
-    Request::builder()
-        .method("GET")
-        .uri(url.as_str())
-        // LCU API认证
-        .header("Authorization", format!("Basic {}", auth_base64))
-        .header("Host", host)
-        .header("Upgrade", "websocket")
-        .header("Connection", "upgrade")
-        .header("Sec-Websocket-Key", "lcu")
-        .header("Sec-Websocket-Version", "13")
-        .header("Accept", "application/json, text/plain")
-        .header("Content-Type", "application/json")
-        .body(())
-        .unwrap()
 }
 
 pub fn format_event_type(event: &str, event_type: EventType) -> String {

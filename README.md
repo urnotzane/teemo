@@ -14,6 +14,11 @@
 ## 示例
 [示例](./examples/teemo.rs)
 
+## 对局进行中的事件
+对局开始后通过`https://127.0.0.1:2999/swagger/v3/openapi.json`查看接口地址。
+
+可在[官方文档](https://developer.riotgames.com/docs/lol)中搜索`2999`即可找到所有api的功能描述。
+
 # 其它
 ## LCU websocket
 https://hextechdocs.dev/getting-started-with-the-lcu-websocket/
