@@ -24,20 +24,20 @@ async fn send_lcu_req() {
         sender.send(data);
     });
     // 订阅好友列表事件
-    teemo.subscribe("/lol-chat/v1/settings", cb1).await;
-    teemo
-        .subscribe("/lol-lobby/v2/lobby", cb_print.clone())
-        .await;
-    teemo
-        .subscribe("/lol-summoner/v1/current-summoner", cb_print.clone())
-        .await;
-    teemo
-        .subscribe("GetLolLoginV1LoginConnectionState", cb_print.clone())
-        .await;
-    teemo
-        .subscribe("/lol-login/v1/login-connection-state", cb_print.clone())
-        .await;
-    // teemo.subscribe("OnJsonApiEvent", cb_print.clone()).await;
+    // teemo.subscribe("/lol-chat/v1/settings", cb1).await;
+    // teemo
+    //     .subscribe("/lol-lobby/v2/lobby", cb_print.clone())
+    //     .await;
+    // teemo
+    //     .subscribe("/lol-summoner/v1/current-summoner", cb_print.clone())
+    //     .await;
+    // teemo
+    //     .subscribe("/lol-login", cb_print.clone())
+    //     .await;
+    // teemo
+    //     .subscribe("/lol-login/v1/login-connection-state", cb_print.clone())
+    //     .await;
+    teemo.subscribe("OnJsonApiEvent", cb_print.clone()).await;
 
     // 发送LCU请求
     let summoner = teemo
@@ -49,7 +49,7 @@ async fn send_lcu_req() {
 
     println!("取消订阅/lol-chat/v1/settings");
     teemo.unsubscribe("/lol-chat/v1/settings").await;
-    
+
     while let Some(msgs) = ws_recv.recv().await {
         println!("msgs: {:?}", msgs);
     }

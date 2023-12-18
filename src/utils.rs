@@ -32,6 +32,8 @@ fn it_works() {
     assert_eq!(format_event_type("Exit", EventType::Subscribe), "[5,\"Exit\"]");
     // For `fn revert_event_type`
     assert_eq!(revert_event_type("OnJsonApiEvent_lol-lobby_v2_lobby".to_string()), "/lol-lobby/v2/lobby".to_string());
+    assert_eq!(revert_event_type("OnJsonApiEvent".to_string()), "OnJsonApiEvent".to_string());
+    assert_eq!(revert_event_type("OnServiceProxyAsyncEvent".to_string()), "OnServiceProxyAsyncEvent".to_string());
 }
 
 #[cfg(windows)]
@@ -107,8 +109,13 @@ pub fn format_event_type(event: &str, event_type: EventType) -> String {
 
 pub fn revert_event_type(event: String) -> String {
     let delimiter_count = event.matches("_").count();
-    let event_uri = event.replacen("OnJsonApiEvent", "", 1);
-    event_uri.replacen("_", "/", delimiter_count)
+    let event_uri = event.replacen("OnJsonApiEvent", "", 1)
+        .replacen("_", "/", delimiter_count);
+    
+    if event_uri.len() < 1 {
+        return event;
+    }
+    event_uri
 }
 
 pub(crate) async fn lcu_ws_sender(
@@ -121,7 +128,7 @@ pub(crate) async fn lcu_ws_sender(
         let event_str = format_event_type(&event, event_type.clone());
 
         if writer.send(Message::Text(event_str)).await.is_err() {
-            eprintln!("write to client failed");
+            println!("Event '{}' subscribe failed.", event);
             break;
         }
         let mut unlock_tasks = writer_tasks.lock().unwrap();
