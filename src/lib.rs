@@ -76,8 +76,11 @@ impl Teemo {
             task.abort();
         }
     }
-
     fn initialize(&mut self) {
+        if !cfg!(target_os = "windows") {
+            println!("LOL must running at Windows!Teemo will close.");
+            return;
+        }
         let remote_data = utils::get_lcu_cmd_data();
         if remote_data.len() < 2 {
             println!("LCU is not running.Teemo will try again after 500ms.");
@@ -165,6 +168,10 @@ impl Teemo {
     ///
     /// After this,u can subscribe websocket event.
     pub async fn start_ws(&mut self) {
+        if !cfg!(target_os = "windows") {
+            println!("LOL must running at Windows!Teemo will close.");
+            return;
+        }
         let ws_stream: WebSocketStream<MaybeTlsStream<TcpStream>> = self.ws_connector().await;
         let (ws_sender, ws_recv) = mpsc::channel::<EventBody>(100);
         self.ws_sender = Some(ws_sender);
@@ -187,6 +194,10 @@ impl Teemo {
     }
 
     pub async fn subscribe(&mut self, event: &str, callback: EventCallback) {
+        if !cfg!(target_os = "windows") {
+            println!("LOL must running at Windows!Teemo will close.");
+            return;
+        }
         self.ws_sender
             .clone()
             .unwrap()
@@ -196,6 +207,10 @@ impl Teemo {
     }
 
     pub async fn unsubscribe(&mut self, event: &str) {
+        if !cfg!(target_os = "windows") {
+            println!("LOL must running at Windows!Teemo will close.");
+            return;
+        }
         self.ws_sender
             .clone()
             .unwrap()

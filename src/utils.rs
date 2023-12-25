@@ -3,7 +3,8 @@ use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 #[cfg(windows)]
-use std::{collections::HashMap, os::windows::process::CommandExt, process::Command};
+use std::os::windows::process::CommandExt;
+use std::{collections::HashMap, process::Command};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::Receiver;
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
@@ -41,6 +42,16 @@ pub fn execute_command(cmd_str: &str) -> String {
         .expect("failed to execute process");
 
     String::from_utf8_lossy(&output.stdout).to_string()
+}
+#[cfg(not(windows))]
+pub fn execute_command(cmd_str: &str) -> String {
+    let output = Command::new(cmd_str)
+        .arg("-l")
+        .output()
+        .expect("failed to execute process");
+
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    stdout
 }
 
 pub fn get_lcu_cmd_data() -> HashMap<String, String> {
