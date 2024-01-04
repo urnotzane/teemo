@@ -1,4 +1,4 @@
-use crate::{EventBody, EventCallback, EventType, EventTasks};
+use crate::{EventBody, EventCallback, EventTasks, EventType};
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
@@ -8,6 +8,7 @@ use std::{collections::HashMap, process::Command};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc::Receiver;
 use tokio_tungstenite::{tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use url::Url;
 
 #[test]
 fn it_works() {
@@ -24,12 +25,35 @@ fn it_works() {
         assert_res
     );
     // For `fn format_event_type`
-    assert_eq!(format_event_type("/lol-summoner", EventType::Subscribe), "[5,\"OnJsonApiEvent_lol-summoner\"]");
-    assert_eq!(format_event_type("Exit", EventType::Subscribe), "[5,\"Exit\"]");
+    assert_eq!(
+        format_event_type("/lol-summoner", EventType::Subscribe),
+        "[5,\"OnJsonApiEvent_lol-summoner\"]"
+    );
+    assert_eq!(
+        format_event_type("Exit", EventType::Subscribe),
+        "[5,\"Exit\"]"
+    );
     // For `fn revert_event_type`
-    assert_eq!(revert_event_type("OnJsonApiEvent_lol-lobby_v2_lobby".to_string()), "/lol-lobby/v2/lobby".to_string());
-    assert_eq!(revert_event_type("OnJsonApiEvent".to_string()), "OnJsonApiEvent".to_string());
-    assert_eq!(revert_event_type("OnServiceProxyAsyncEvent".to_string()), "OnServiceProxyAsyncEvent".to_string());
+    assert_eq!(
+        revert_event_type("OnJsonApiEvent_lol-lobby_v2_lobby".to_string()),
+        "/lol-lobby/v2/lobby".to_string()
+    );
+    assert_eq!(
+        revert_event_type("OnJsonApiEvent".to_string()),
+        "OnJsonApiEvent".to_string()
+    );
+    assert_eq!(
+        revert_event_type("OnServiceProxyAsyncEvent".to_string()),
+        "OnServiceProxyAsyncEvent".to_string()
+    );
+    assert_eq!(
+        transform_full_url(Url::parse("https://teemo.com").unwrap(), "get_name"),
+        String::from("https://teemo.com/get_name")
+    );
+    assert_eq!(
+        transform_full_url(Url::parse("https://teemo.com").unwrap(), "/get_name"),
+        String::from("https://teemo.com/get_name")
+    );
 }
 
 #[cfg(windows)]
@@ -90,13 +114,26 @@ pub fn format_event_type(event: &str, event_type: EventType) -> String {
 
 pub fn revert_event_type(event: String) -> String {
     let delimiter_count = event.matches("_").count();
-    let event_uri = event.replacen("OnJsonApiEvent", "", 1)
+    let event_uri = event
+        .replacen("OnJsonApiEvent", "", 1)
         .replacen("_", "/", delimiter_count);
-    
+
     if event_uri.len() < 1 {
         return event;
     }
     event_uri
+}
+/// To check if the incoming URL has a / and remove it if present.
+pub fn transform_full_url(base_url: Url, url: &str) -> String {
+    let url_string = url.to_string();
+    let mut url_chars = url_string.chars();
+    let first_char = url_chars.next().unwrap();
+    let mut res_url = url_string;
+
+    if first_char.to_string().as_str() == "/" {
+        res_url.remove(0);
+    }
+    format!("{}{}", base_url, res_url)
 }
 
 pub(crate) async fn lcu_ws_sender(
@@ -145,7 +182,7 @@ pub(crate) async fn lcu_ws_receiver(
             Err(err) => {
                 println!("LCU websocket connection failed: {:?}", err);
                 break;
-            },
+            }
         };
         if msg.is_text() || msg.is_binary() {
             // msg为空时表示订阅LCU事件成功
