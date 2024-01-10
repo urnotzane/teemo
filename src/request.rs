@@ -36,7 +36,14 @@ pub(crate) async fn send(
     match request {
         Ok(request) => {
             let response = request.text().await.unwrap();
-            serde_json::from_str(&response).unwrap()
+            match serde_json::from_str(&response) {
+                Ok(json_map) => {
+                    json_map
+                },
+                Err(_) => {
+                    error_res
+                },
+            }
         }
         Err(err) => {
             println!("Request api error: {:?}", err);
