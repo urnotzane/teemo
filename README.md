@@ -48,3 +48,9 @@ thread 'tokio-runtime-worker' panicked at E:\Users\wa\Documents\codes\Teemo\src\
 called `Result::unwrap()` on an `Err` value: Io(Os { code: 10054, kind: ConnectionReset, message: "远程主机强迫关闭了一 个现有的连接。" })
 note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
 ```
+
+## 开发
+```bash
+# 运行示例：管理员身份打开终端并运行以下命令
+cargo run --package teemo --example teemo 
+```

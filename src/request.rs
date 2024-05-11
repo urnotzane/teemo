@@ -32,7 +32,6 @@ pub(crate) async fn send(
         .json(&data)
         .send()
         .await;
-
     match request {
         Ok(request) => {
             let response = request.text().await.unwrap();
@@ -40,7 +39,8 @@ pub(crate) async fn send(
                 Ok(json_map) => {
                     json_map
                 },
-                Err(_) => {
+                Err(json_error) => {
+                    println!("Response json format failed: {:?}", json_error);
                     error_res
                 },
             }

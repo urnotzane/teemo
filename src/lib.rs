@@ -98,6 +98,9 @@ impl Teemo {
             .unwrap();
         self.url =
             Url::parse(&("https://127.0.0.1:".to_string() + &self.app_port.to_string())).unwrap();
+        let _ = self.url.set_username("riot");
+        let _ = self.url.set_password(Some(&self.app_token));
+        
         self.ws_url =
             Url::parse(&("wss://127.0.0.1:".to_string() + &self.app_port.to_string())).unwrap();
     }
