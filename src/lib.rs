@@ -111,7 +111,7 @@ impl Teemo {
         method: &str,
         url: &str,
         data: Option<HashMap<String, Value>>,
-    ) -> HashMap<String, Value> {
+    ) -> Value {
         let full_url = utils::transform_full_url(self.url.clone(), url);
 
         request::send(method, &full_url, data).await
@@ -124,7 +124,7 @@ impl Teemo {
         method: &str,
         url: &str,
         data: Option<HashMap<String, Value>>,
-    ) -> HashMap<String, Value> {
+    ) -> Value {
         let live_url = "https://127.0.0.1:2999/";
         let full_url = utils::transform_full_url(Url::parse(live_url).unwrap(), url);
 

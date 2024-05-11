@@ -1,12 +1,11 @@
-use std::collections::HashMap;
-use http::Request;
-use reqwest::{self, Client};
 use base64::engine::general_purpose;
 use base64::Engine;
+use http::Request;
 use reqwest::Method;
-use serde_json::Value;
+use reqwest::{self, Client};
+use serde_json::{Error, Value};
+use std::collections::HashMap;
 use url::Url;
-
 
 /// LOL ingame api.
 ///
@@ -15,7 +14,7 @@ pub(crate) async fn send(
     method: &str,
     full_url: &str,
     data: Option<HashMap<String, Value>>,
-) -> HashMap<String, Value> {
+) -> Value {
     let mut error_res: HashMap<String, Value> = HashMap::new();
     error_res.insert("code".to_string(), serde_json::json!(500));
     error_res.insert(
@@ -35,19 +34,18 @@ pub(crate) async fn send(
     match request {
         Ok(request) => {
             let response = request.text().await.unwrap();
-            match serde_json::from_str(&response) {
-                Ok(json_map) => {
-                    json_map
-                },
+            let json_map_res: Result<Value, Error> = serde_json::from_str(&response);
+            match json_map_res {
+                Ok(json_map) => json_map,
                 Err(json_error) => {
                     println!("Response json format failed: {:?}", json_error);
-                    error_res
-                },
+                    serde_json::to_value(&error_res).unwrap()
+                }
             }
         }
         Err(err) => {
             println!("Request api error: {:?}", err);
-            error_res
+            serde_json::to_value(&error_res).unwrap()
         }
     }
 }

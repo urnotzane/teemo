@@ -22,9 +22,9 @@ async fn send_lcu_req() {
 
     // 发送LCU请求
     let summoner = teemo
-        .request("GET", "lol-summoner/v1/current-summoner", None)
+        .request("GET", "lol-maps/v2/maps", None)
         .await;
-    println!("{:#?}", summoner);
+    println!("{:?}", summoner);
 
     thread::sleep(Duration::from_millis(3000));
     println!("取消订阅/lol-chat/v1/settings");
