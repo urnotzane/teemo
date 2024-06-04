@@ -61,8 +61,14 @@ impl Teemo {
     /// Initialize LCU `remoting-token` and `app-port`.
     ///
     /// After this,`teemo.request` can be used.
+    ///
+    /// !!! This is a self-invoking function, which will block program execution if the game client is not running.
     pub fn start(&mut self) {
-        self.initialize();
+        let init_succeed = self.init_lcu_config();
+        if !init_succeed {
+            self.start();
+            return;
+        }
     }
     /// Close all teemo service except `teemo.request`.
     pub fn close(&mut self) {
@@ -76,21 +82,25 @@ impl Teemo {
             task.abort();
         }
     }
-    fn initialize(&mut self) {
+    // Return LCU initial succeed or not.
+    pub fn init_lcu_config(&mut self) -> bool {
+        let mut init_succeed = false;
         if !cfg!(target_os = "windows") {
-            println!("LOL must running at Windows!Teemo will close.");
-            return;
+            println!("LOL must running at Windows!");
+            return init_succeed;
         }
         let remote_data = utils::get_lcu_cmd_data();
-        if remote_data.len() < 2 {
-            println!("LCU is not running.Teemo will try again after 500ms.");
-            thread::sleep(Duration::from_millis(500));
-            self.initialize();
-            return;
+        init_succeed = remote_data.len() >= 2;
+        if init_succeed {
+            self.set_lcu_config(remote_data.clone());
         }
 
-        self.app_token = remote_data.get("remoting-auth-token").unwrap().to_owned();
-        self.app_port = remote_data
+        return init_succeed;
+    }
+
+    fn set_lcu_config(&mut self, cmd_data: HashMap<String, String>) {
+        self.app_token = cmd_data.get("remoting-auth-token").unwrap().to_owned();
+        self.app_port = cmd_data
             .get("app-port")
             .unwrap()
             .to_owned()
@@ -100,11 +110,10 @@ impl Teemo {
             Url::parse(&("https://127.0.0.1:".to_string() + &self.app_port.to_string())).unwrap();
         let _ = self.url.set_username("riot");
         let _ = self.url.set_password(Some(&self.app_token));
-        
+
         self.ws_url =
             Url::parse(&("wss://127.0.0.1:".to_string() + &self.app_port.to_string())).unwrap();
     }
-
     /// Send request to LCU.
     pub async fn request(
         &self,

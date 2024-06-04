@@ -18,6 +18,7 @@ async fn send_lcu_req() {
     
     // 订阅事件
     teemo.subscribe("/lol-chat/v1/settings", cb_print.clone()).await;
+    // 订阅所有事件
     // teemo.subscribe("OnJsonApiEvent", cb_print.clone()).await;
 
     // 发送LCU请求
@@ -32,5 +33,7 @@ async fn send_lcu_req() {
 
     let res = teemo.live_request("GET", "liveclientdata/eventdata", None).await;
     println!("游戏中已发生的事件: {:?}", res);
+    
+    println!("API url: {}", teemo.url);
     
 }
